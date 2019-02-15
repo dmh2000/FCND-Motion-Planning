@@ -41,12 +41,6 @@ class MotionPlanning(Drone):
         self.register_callback(MsgID.STATE, self.state_callback)
 
     def local_position_callback(self):
-        """
-        This triggers when `MsgID.LOCAL_POSITION` is received and self.local_position contains new data
-        """
-        # process the event
-        self.state_handler(Events.LOCAL_POSITION)
-        
         if self.flight_state == States.TAKEOFF:
             if -1.0 * self.local_position[2] > 0.95 * self.target_position[2]:
                 self.waypoint_transition()
