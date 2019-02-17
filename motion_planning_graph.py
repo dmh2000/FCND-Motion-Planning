@@ -2,15 +2,14 @@ import argparse
 import time
 import msgpack
 from enum import Enum, auto
-
 import numpy as np
 
 from planning_utils import a_star, heuristic, create_grid
-from project_utils import read_environment, prune_path, plot_grid
+from project_utils import read_environment, prune_path, create_graph, a_star_graph, find_nearest, plot_grid
 from udacidrone import Drone
 from udacidrone.connection import MavlinkConnection
 from udacidrone.messaging import MsgID
-from udacidrone.frame_utils import global_to_local
+from udacidrone.frame_utils import global_to_local, local_to_global
 
 
 class States(Enum):
@@ -47,11 +46,17 @@ class MotionPlanning(Drone):
         self.waypoints = []  # list of waypoints in flight order
         self.global_goal = [-122.397896, 37.792523, 0]
 
+        # plan data
+        self.enable_plot = False
+        self.start_p = None
+        self.goal_p = None
+        self.grid = None
+        self.graph = None
+        self.edges = None
+        self.path = None
+
         # initial state
         self.flight_state = States.MANUAL
-
-        # miscellaneous terms
-        self.enable_plot = False
 
         # register callbacks
         self.register_callback(MsgID.LOCAL_POSITION, self.local_position_callback)
@@ -74,7 +79,7 @@ class MotionPlanning(Drone):
         This triggers when `MsgID.LOCAL_VELOCITY` is received and self.local_velocity contains new data
         """
         # process the event
-        self.state_handler(Events.LOCAL_POSITION)
+        self.state_handler(Events.VELOCITY)
 
     def state_callback(self):
         """
@@ -98,7 +103,7 @@ class MotionPlanning(Drone):
     def takeoff_transition(self):
         """
         """
-        print("takeoff transition")
+        print("takeoff transition", self.target_position)
         self.takeoff(self.target_position[2])
         self.flight_state = States.TAKEOFF
 
@@ -179,7 +184,7 @@ class MotionPlanning(Drone):
         elif event == Events.VELOCITY:
             pass
         elif event == Events.STATE:
-            # wait until armed then initiate takeoff
+            # wait until armed then initiate planning
             if self.armed:
                 self.plan_path()
         else:
@@ -195,7 +200,7 @@ class MotionPlanning(Drone):
         elif event == Events.VELOCITY:
             pass
         elif event == Events.STATE:
-            # wait until armed then initiate takeoff
+            # takeoff
             self.takeoff_transition()
         else:
             print("INVALID EVENT", self.flight_state, event)
@@ -209,11 +214,7 @@ class MotionPlanning(Drone):
         if event == Events.LOCAL_POSITION:
             # check position and go to first waypoint if the position is in bounds
             # coordinate conversion
-            altitude = -1.0 * self.local_position[2]
-
-            # check if altitude is within 95% of target
-            if altitude > 0.95 * self.target_position[2]:
-                # go to landing
+            if -1.0 * self.local_position[2] > 0.95 * self.target_position[2]:
                 self.waypoint_transition()
         elif event == Events.VELOCITY:
             pass
@@ -317,7 +318,6 @@ class MotionPlanning(Drone):
         self.global_goal = [lon, lat, 0]
 
     def plan_path(self):
-        self.flight_state = States.PLANNING
         print("Searching for a path ...")
         TARGET_ALTITUDE = 5
         SAFETY_DISTANCE = 5
@@ -329,7 +329,7 @@ class MotionPlanning(Drone):
         lat0, lon0, data = read_environment()
 
         # set home position to (lon0, lat0, 0)
-        self.set_home_position(lon0, lat0, 0)
+        # self.set_home_position(lon0, lat0, 0)
 
         # retrieve current global position
         global_position = self.global_position
@@ -342,44 +342,50 @@ class MotionPlanning(Drone):
                                                                                                       self.local_position,
                                                                                                       current_position))
 
-        grid, north_offset, east_offset = create_grid(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
-        print("North offset = {0}, east offset = {1}".format(north_offset, east_offset))
+        # Define a graph and grid for a particular altitude and safety margin around obstacles
+        # see project_utils.py
+        self.graph, self.edges, self.grid, north_min, east_min = create_graph(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
 
         # Define starting point on the grid (this is just grid center)
         # convert start position to current position rather than map center
-        grid_start = (int(current_position[0]) - north_offset, int(current_position[1]) - east_offset)
+        # get start in grid coordinates
+        start_p = (current_position[0] - north_min, current_position[1] - east_min)
 
         # Set goal as some arbitrary position on the grid
         # adapt to set goal as latitude / longitude position and convert
         local_goal = global_to_local(self.global_goal, self.global_home)
 
-        grid_goal = (grid_start[0] - north_offset, grid_start[1] - north_offset)
+        # get goal in grid coordinates
+        goal_p = (local_goal[0] - north_min, local_goal[1] - east_min)
 
-        # PRINT STRAIGHT LINE DISTANCE START TO GOAL
-        print("START->GOAL :", heuristic(grid_start, grid_goal))
+        # find nearest points in the graph
+        self.start_p = find_nearest(self.graph, self.grid, start_p)
+        self.goal_p = find_nearest(self.graph, self.grid, goal_p)
 
-        # Run A* to find a path from start to goal
-        # TODO: add diagonal motions with a cost of sqrt(2) to your A* implementation
-        # or move to a different search space such as a graph (not done here)
-        print('Local Start and Goal: ', grid_start, grid_goal)
-        path, _ = a_star(grid, heuristic, grid_start, grid_goal)
+        # Run Graph A* to find a path from start to goal
+        # see project_utils.py
+        print('Local Start and Goal: ', self.start_p, self.goal_p)
+        self.path, _ = a_star_graph(self.graph, heuristic, self.start_p, self.goal_p)
 
         # TODO: prune path to minimize number of waypoints
+        # TODO (if you're feeling ambitious): Try a different approach altogether!
         # path = prune_path(grid, path)
 
         # Convert path to waypoints
-        waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in path]
-        # Set self.waypoints
-        self.waypoints = waypoints
+        self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in self.path]
 
         if self.enable_plot:
-            plot_grid(grid_start,
-                      grid_goal,
-                      grid,
-                      path)
+            plot_grid(self.start_p,
+                      self.goal_p,
+                      self.grid,
+                      self.path,
+                      self.edges)
 
-        # TODO: send waypoints to sim (this is just for visualization of waypoints)
+        # send waypoints to sim (this is just for visualization of waypoints)
         self.send_waypoints()
+
+        # current state is planning
+        self.flight_state = States.PLANNING
 
     # def start(self):
     #     self.start_log("Logs", "NavLog.txt")
@@ -409,21 +415,20 @@ class MotionPlanning(Drone):
 
 
 if __name__ == "__main__":
-    if __name__ == "__main__":
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--port', type=int, default=5760, help='Port number')
-        parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
-        args = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=5760, help='Port number')
+    parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
+    args = parser.parse_args()
 
-        conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=60)
-        drone = MotionPlanning(conn)
+    conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=60)
+    drone = MotionPlanning(conn)
 
-        # START POINT FROM Colliders.csv
-        # pine and market : 37.7961938,-122.3987356
-        # SET GOAL
-        # davis and washington : 37.7961938,-122.3987356
-        drone.set_goal(37.7961938, -122.3987356)
-        drone.enable_plot = True
-        time.sleep(1)
+    # START POINT FROM Colliders.csv
+    # pine and market : 37.7961938,-122.3987356
+    # SET GOAL
+    # davis and washington : 37.7961938,-122.3987356
+    drone.set_goal(37.7961938, -122.3987356)
+    drone.enable_plot = True
+    time.sleep(1)
 
-        drone.start()
+    drone.start()
