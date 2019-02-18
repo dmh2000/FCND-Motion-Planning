@@ -268,6 +268,11 @@ def create_grid_and_edges(data, drone_altitude, safety_distance):
 
 
 def plot_grid(prefix, start, goal, grid, path=None, edges=None, waypoints=None):
+    # create filename
+    t = time.strftime("%m%d%H%M%S")
+    fname = "{0}_{1}-{2}-{3}-{4}-{5}.jpg".format(prefix, int(start[0]), int(start[1]), int(goal[0]), int(goal[1]), t)
+    print("Generating plot to ",fname)
+
     # equivalent to
     # plt.imshow(np.flip(grid, 0))
     # Plot it up!
@@ -296,8 +301,6 @@ def plot_grid(prefix, start, goal, grid, path=None, edges=None, waypoints=None):
     plt.plot(goal[1], goal[0], 'rx')
     plt.xlabel('EAST')
     plt.ylabel('NORTH')
-    t = time.strftime("%m%d%H%M%S")
-    fname = "{0}_{1}-{2}-{3}-{4}-{5}.jpg".format(prefix, int(start[0]), int(start[1]), int(goal[0]), int(goal[1]), t)
     plt.savefig(fname)
 
 

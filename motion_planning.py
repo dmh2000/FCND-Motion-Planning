@@ -43,7 +43,7 @@ class MotionPlanning(Drone):
 
     def __init__(self, connection):
         super().__init__(connection)
-        self.target_position = np.array([0.0, 0.0, 0.0])
+        self.target_position = np.array([0.0, 0.0, 5.0])
         self.in_mission = True
         self.check_state = {}
 
@@ -89,14 +89,13 @@ class MotionPlanning(Drone):
         # process the event
         self.state_handler(Events.STATE)
 
-        # ===============================================================
-        # state transitions
-        # ===============================================================
+    # ===============================================================
+    # state transitions
+    # ===============================================================
 
     def arming_transition(self):
         """
-        1. transition the done to arming state
-        2. arm and control the drone
+        arm and take control
         """
         self.flight_state = States.ARMING
         print("arming transition")
@@ -105,12 +104,13 @@ class MotionPlanning(Drone):
 
     def takeoff_transition(self):
         """
-        1. transition to takeoff state
-        2. command the drone to takeoff
+        command takeoff
         """
         self.flight_state = States.TAKEOFF
-        print("takeoff transition", self.target_position)
+        print("takeoff transition")
         self.takeoff(self.target_position[2])
+
+
 
     def waypoint_transition(self):
         """
@@ -189,7 +189,7 @@ class MotionPlanning(Drone):
             pass
         elif event == Events.STATE:
             # wait until armed then initiate planning
-            if self.armed:
+            if self.armed and self.guided:
                 if self.planner == Planner.VORONOI:
                     self.plan_path_voronoi()
                 else:
@@ -240,7 +240,7 @@ class MotionPlanning(Drone):
         # NEW =====================================================
         # increased tolerance for stepping waypoint
         # NEW =====================================================
-        tolerance = 5.0
+        tolerance = 4.0
         if event == Events.LOCAL_POSITION:
             # check waypoint bounds and go to next
             if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < tolerance:
@@ -270,6 +270,11 @@ class MotionPlanning(Drone):
                     abs(self.local_position[2]) < 0.01):
                 self.disarming_transition()
         elif event == Events.VELOCITY:
+            # check position and go to disarming if in touchdown bounds
+            # why was this in the velocity callback in the up-down exaple?
+            if ((self.global_position[2] - self.global_home[2] < 0.1) and
+                    abs(self.local_position[2]) < 0.01):
+                self.disarming_transition()
             pass
         elif event == Events.STATE:
             pass
@@ -339,7 +344,7 @@ class MotionPlanning(Drone):
         """
         print("Searching for a path ...")
         TARGET_ALTITUDE = 5
-        SAFETY_DISTANCE = 5
+        SAFETY_DISTANCE = 8
 
         # compute elapsed time to plan
         t0 = time.monotonic()
@@ -359,10 +364,16 @@ class MotionPlanning(Drone):
         # convert to current local position using global_to_local()
         current_position = global_to_local(global_position, self.global_home)
 
-        print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(self.global_home,
-                                                                                                      self.global_position,
-                                                                                                      self.local_position,
-                                                                                                      current_position))
+        # set initial location and takeoff altitude
+        self.target_position = current_position;
+        self.target_position[2] = TARGET_ALTITUDE
+
+        print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(
+            self.global_home,
+            self.global_position,
+            self.local_position,
+            current_position)
+        )
 
         grid, north_offset, east_offset = create_grid(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
         print("North offset = {0}, east offset = {1}".format(north_offset, east_offset))
@@ -409,9 +420,7 @@ class MotionPlanning(Drone):
                       pruned_path)
 
         # send waypoints to sim (this is just for visualization of waypoints)
-        # this seems to cause:
-        #     ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
-        # self.send_waypoints()
+        self.send_waypoints()
 
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
@@ -423,9 +432,6 @@ class MotionPlanning(Drone):
         """
         plan the path using a Voronoi graph
         """
-        # transition to planning
-        self.flight_state = States.PLANNING
-
         print("Searching for a path ...")
         TARGET_ALTITUDE = 5
         SAFETY_DISTANCE = 5
@@ -448,10 +454,12 @@ class MotionPlanning(Drone):
         # convert to current local position using global_to_local()
         current_position = global_to_local(global_position, self.global_home)
 
-        print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(self.global_home,
-                                                                                                      self.global_position,
-                                                                                                      self.local_position,
-                                                                                                      current_position))
+        print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(
+            self.global_home,
+            self.global_position,
+            self.local_position,
+            current_position)
+        )
 
         # Define a graph and grid for a particular altitude and safety margin around obstacles
         # see project_utils.py
@@ -476,7 +484,7 @@ class MotionPlanning(Drone):
 
         # Run Graph A* to find a path from start to goal
         # see project_utils.py
-        print('Local Start and Goal: ', start_p, goal_p)
+        print('Local Start and Goal: {0} {1} '.format(start_p, goal_p))
         path, cost = a_star_graph(graph, heuristic, start_p, goal_p)
 
         # quit if path not found
@@ -497,7 +505,6 @@ class MotionPlanning(Drone):
         # self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
         waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
         self.waypoints = waypoints
-        # print(waypoints)
 
         if self.enable_plot:
             plot_grid("graph",
@@ -508,11 +515,13 @@ class MotionPlanning(Drone):
                       edges)
 
         # send waypoints to sim (this is just for visualization of waypoints)
-        # NOTE : THIS CAUSES NETWORK ABORT ERRORS
-        # self.send_waypoints()
+        self.send_waypoints()
 
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
+
+        # transition to planning
+        self.flight_state = States.PLANNING
 
     def start(self):
         self.start_log("Logs", "NavLog.txt")
@@ -532,21 +541,18 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=5760, help='Port number')
     parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
     parser.add_argument('--mode', type=str, default='grid', help="'grid' or'voronoi'")
-    parser.add_argument('--plot', type=str, default='false', help="'true or false'")
+    parser.add_argument('--plot', action='store_true', help="enables plot of grid,path and graph (if any)")
     args = parser.parse_args()
 
     conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=(12 * 60))
     drone = MotionPlanning(conn)
 
-    # SET GOAL
-    # near davis and washington : 37.7961938,-122.3987356
-    drone.set_goal(37.7961000, -122.3987356)
+
 
     # set to true to generate a plot of the grid, path and graph (if using voronoi)
-    if args.plot == "true":
-        drone.enable_plot = True
-    else:
-        drone.enable_plot = False
+    if args.plot:
+        print("plot enabled")
+    drone.enable_plot = args.plot
 
     # this can be controlled by command line parameter 'mode' (see above)
     # set drone.planner to Planner.VORONOI to use graph search mode
@@ -559,5 +565,9 @@ if __name__ == "__main__":
         print("mode = GRID_SEARCH")
 
     time.sleep(1)
+
+    # SET GOAL
+    # near davis and washington : 37.7961938,-122.3987356
+    drone.set_goal(37.7961000, -122.3987356)
 
     drone.start()
