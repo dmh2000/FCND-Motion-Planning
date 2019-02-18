@@ -532,6 +532,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=5760, help='Port number')
     parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
     parser.add_argument('--mode', type=str, default='grid', help="'grid' or'voronoi'")
+    parser.add_argument('--plot', type=str, default='false', help="'true or false'")
     args = parser.parse_args()
 
     conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=(12 * 60))
@@ -542,7 +543,10 @@ if __name__ == "__main__":
     drone.set_goal(37.7961000, -122.3987356)
 
     # set to true to generate a plot of the grid, path and graph (if using voronoi)
-    drone.enable_plot = False
+    if args.plot == "true":
+        drone.enable_plot = True
+    else:
+        drone.enable_plot = False
 
     # this can be controlled by command line parameter 'mode' (see above)
     # set drone.planner to Planner.VORONOI to use graph search mode
