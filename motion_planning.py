@@ -118,7 +118,6 @@ class MotionPlanning(Drone):
         """
         self.flight_state = States.WAYPOINT
         print("waypoint transition")
-        # command next waypoint : correct Z to positive up (waypoint is ned)
         self.target_position = self.waypoints.pop(0)
         print('target position', self.target_position)
         self.cmd_position(self.target_position[0],
@@ -239,7 +238,7 @@ class MotionPlanning(Drone):
         # NEW =====================================================
         # increased tolerance for stepping waypoint
         # NEW =====================================================
-        tolerance = 4.0
+        tolerance = 5.0
         if event == Events.LOCAL_POSITION:
             # check waypoint bounds and go to next
             if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < tolerance:
@@ -405,7 +404,7 @@ class MotionPlanning(Drone):
 
         print("Path {0}:{1:f} : Pruned Path {2} ".format(len(path), cost, len(pruned_path)))
 
-        # Convert path to waypoints
+        # Convert path to waypoints without heading
         waypoints = [[int(p[0] + north_offset), int(p[1] + east_offset), TARGET_ALTITUDE, 0] for p in pruned_path]
 
         # Set self.waypoints
@@ -465,19 +464,19 @@ class MotionPlanning(Drone):
 
         # Define a graph and grid for a particular altitude and safety margin around obstacles
         # see project_utils.py
-        graph, edges, grid, north_min, east_min = create_graph(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
+        graph, edges, grid, north_offset, east_offset = create_graph(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
 
         # Define starting point on the grid (this is just grid center)
         # convert start position to current position rather than map center
         # get start in grid coordinates
-        start_p = (current_position[0] - north_min, current_position[1] - east_min)
+        start_p = (current_position[0] - north_offset, current_position[1] - east_offset)
 
         # Set goal as some arbitrary position on the grid
         # adapt to set goal as latitude / longitude position and convert
         local_goal = global_to_local(self.global_goal, self.global_home)
 
         # get goal in grid coordinates
-        goal_p = (local_goal[0] - north_min, local_goal[1] - east_min)
+        goal_p = (local_goal[0] - north_offset, local_goal[1] - east_offset)
 
         # find nearest points in the graph
         print(start_p, goal_p)
@@ -503,8 +502,19 @@ class MotionPlanning(Drone):
 
         print("Path {0}:{1:f} : Pruned Path {2} ".format(len(path), cost, len(pruned_path)))
 
-        # Convert path to waypoints
-        waypoints = [[int(p[0] + north_min), int(p[1] + east_min), TARGET_ALTITUDE, 0] for p in path]
+        # waypoints without heading
+        # waypoints = [[int(p[0] + north_offset), int(p[1] + east_offset), TARGET_ALTITUDE, 0] for p in path]
+
+        # Convert path to waypoints with heading
+        waypoints = []
+        wp1 = [int(pruned_path[0][0] + north_offset), int(pruned_path[0][1] + east_offset), TARGET_ALTITUDE, 0]
+        waypoints.append(wp1)
+        for p in pruned_path[1:]:
+            wp2 = [int(p[0] + north_offset), int(p[1] + east_offset), TARGET_ALTITUDE,0]
+            wp2[3] = np.arctan2(wp2[1] - wp1[1], wp2[0] - wp1[0])
+            waypoints.append(wp2)
+            wp1 = wp2
+
         self.waypoints = waypoints
 
         if self.enable_plot:
@@ -543,7 +553,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=10)
-    conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=60)
+    conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=1200)
     drone = MotionPlanning(conn)
 
     # set to true to generate a plot of the grid, path and graph (if using voronoi)
