@@ -268,9 +268,6 @@ def create_grid_and_edges(data, drone_altitude, safety_distance):
 
 
 def plot_grid(prefix, start, goal, grid, path=None, edges=None, waypoints=None):
-    # interactive mode off
-    plt.ioff()
-
     # equivalent to
     # plt.imshow(np.flip(grid, 0))
     # Plot it up!

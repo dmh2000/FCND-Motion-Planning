@@ -120,6 +120,7 @@ def a_star(grid, h, start, goal):
     found = False
 
     count = 0
+    print("Printing Astar Progress (every 1000 iterations)")
     while not queue.empty():
         item = queue.get()
 

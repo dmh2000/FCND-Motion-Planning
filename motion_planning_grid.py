@@ -91,23 +91,24 @@ class MotionPlanning(Drone):
     def arming_transition(self):
         """T
         """
+        self.flight_state = States.ARMING
         print("arming transition")
         self.arm()
         self.take_control()
-        self.flight_state = States.ARMING
 
     def takeoff_transition(self):
         """
         """
+        self.flight_state = States.TAKEOFF
         print("takeoff transition")
         self.takeoff(self.target_position[2])
-        self.flight_state = States.TAKEOFF
 
     def waypoint_transition(self):
         """
         1. Command the next waypoint position
         2. Transition to WAYPOINT state
         """
+        self.flight_state = States.WAYPOINT
         print("waypoint transition")
         # command next waypoint : correct Z to positive up (waypoint is ned)
         self.target_position = self.waypoints.pop(0)
@@ -117,26 +118,24 @@ class MotionPlanning(Drone):
                           self.target_position[2],
                           self.target_position[3])
 
-        self.flight_state = States.WAYPOINT
-
     def landing_transition(self):
         """T
         1. Command the drone to land
         2. Transition to the LANDING state
         """
+        self.flight_state = States.LANDING
         print("landing transition")
         self.land()
-        self.flight_state = States.LANDING
 
     def disarming_transition(self):
         """
         1. Command the drone to disarm
         2. Transition to the DISARMING state
         """
+        self.flight_state = States.DISARMING
         print("disarm transition")
         self.disarm()
         self.release_control()
-        self.flight_state = States.DISARMING
 
     def manual_transition(self):
         """
@@ -392,7 +391,7 @@ class MotionPlanning(Drone):
         # send waypoints to sim (this is just for visualization of waypoints)
         # this seems to cause:
         #     ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
-        self.send_waypoints()
+        # self.send_waypoints()
 
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
@@ -400,31 +399,15 @@ class MotionPlanning(Drone):
         # transition to planning
         self.flight_state = States.PLANNING
 
-    # def start(self):
-    #     self.start_log("Logs", "NavLog.txt")
-    #
-    #     print("starting connection")
-    #     self.connection.start()
-    #
-    #     # Only required if they do threaded
-    #     # while self.in_mission:
-    #     #    pass
-    #
-    #     self.stop_log()
-
     def start(self):
-        """This method is provided
-        
-        1. Open a log file
-        2. Start the drone connection
-        3. Close the log file
-        """
-
-        print("Creating log file")
         self.start_log("Logs", "NavLog.txt")
         print("starting connection")
         self.connection.start()
-        print("Closing log file")
+
+        # Only required if they do threaded
+        # while self.in_mission:
+        #    pass
+
         self.stop_log()
 
 

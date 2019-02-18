@@ -44,10 +44,10 @@ class MotionPlanning(Drone):
 
         # set waypoint parameters
         self.waypoints = []  # list of waypoints in flight order
-        self.global_goal = [-122.397896, 37.792523, 0]
 
         # plan data
         self.enable_plot = False
+        self.global_goal = [-122.397896, 37.792523, 0]
 
         # initial state
         self.flight_state = States.MANUAL
@@ -89,23 +89,24 @@ class MotionPlanning(Drone):
     def arming_transition(self):
         """T
         """
+        self.flight_state = States.ARMING
         print("arming transition")
         self.arm()
         self.take_control()
-        self.flight_state = States.ARMING
 
     def takeoff_transition(self):
         """
         """
+        self.flight_state = States.TAKEOFF
         print("takeoff transition", self.target_position)
         self.takeoff(self.target_position[2])
-        self.flight_state = States.TAKEOFF
 
     def waypoint_transition(self):
         """
         1. Command the next waypoint position
         2. Transition to WAYPOINT state
         """
+        self.flight_state = States.WAYPOINT
         print("waypoint transition")
         # command next waypoint : correct Z to positive up (waypoint is ned)
         self.target_position = self.waypoints.pop(0)
@@ -115,26 +116,24 @@ class MotionPlanning(Drone):
                           self.target_position[2],
                           self.target_position[3])
 
-        self.flight_state = States.WAYPOINT
-
     def landing_transition(self):
         """T
         1. Command the drone to land
         2. Transition to the LANDING state
         """
+        self.flight_state = States.LANDING
         print("landing transition")
         self.land()
-        self.flight_state = States.LANDING
 
     def disarming_transition(self):
         """
         1. Command the drone to disarm
         2. Transition to the DISARMING state
         """
+        self.flight_state = States.DISARMING
         print("disarm transition")
         self.disarm()
         self.release_control()
-        self.flight_state = States.DISARMING
 
     def manual_transition(self):
         """
@@ -223,9 +222,13 @@ class MotionPlanning(Drone):
         :param event: position,velocity or state
         :return: none
         """
+        # NEW =====================================================
+        # increased tolerance for stepping waypoint
+        # NEW =====================================================
+        tolerance = 5.0
         if event == Events.LOCAL_POSITION:
             # check waypoint bounds and go to next
-            if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < 1.0:
+            if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < tolerance:
                 if len(self.waypoints) > 0:
                     self.waypoint_transition()
                 else:
@@ -312,6 +315,9 @@ class MotionPlanning(Drone):
         self.global_goal = [lon, lat, 0]
 
     def plan_path(self):
+        # transition to planning
+        self.flight_state = States.PLANNING
+
         print("Searching for a path ...")
         TARGET_ALTITUDE = 5
         SAFETY_DISTANCE = 5
@@ -356,7 +362,7 @@ class MotionPlanning(Drone):
         goal_p = (local_goal[0] - north_min, local_goal[1] - east_min)
 
         # find nearest points in the graph
-        print(start_p,goal_p)
+        print(start_p, goal_p)
         start_p = find_nearest(graph, grid, start_p)
         goal_p = find_nearest(graph, grid, goal_p)
 
@@ -370,13 +376,20 @@ class MotionPlanning(Drone):
             self.disarming_transition()
             return
 
-        # TODO: prune path to minimize number of waypoints
-        # TODO (if you're feeling ambitious): Try a different approach altogether!
-        # path = prune_path(grid, path)
-        print("Path {0}:{1:f} ".format(len(path), cost))
+        # prune path to minimize number of waypoints
+        # prune path to minimize number of waypoints
+        pruned_path = prune_path(path)
+        if len(pruned_path) == 0:
+            print("PRUNED PATH FAILED")
+            pruned_path = path
+
+        print("Path {0}:{1:f} : Pruned Path {2} ".format(len(path), cost, len(pruned_path)))
 
         # Convert path to waypoints
-        self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
+        # self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
+        waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
+        self.waypoints = waypoints
+        # print(waypoints)
 
         if self.enable_plot:
             plot_grid("graph",
@@ -387,38 +400,22 @@ class MotionPlanning(Drone):
                       edges)
 
         # send waypoints to sim (this is just for visualization of waypoints)
-        self.send_waypoints()
+        # NOTE : THIS CAUSES NETWORK ABORT ERRORS
+        # self.send_waypoints()
 
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
 
-        # transition to planning
-        self.flight_state = States.PLANNING
-
-    # def start(self):
-    #     self.start_log("Logs", "NavLog.txt")
-    #
-    #     print("starting connection")
-    #     self.connection.start()
-    #
-    #     # Only required if they do threaded
-    #     # while self.in_mission:
-    #     #    pass
-    #
-    #     self.stop_log()
-
     def start(self):
-        """This method is provided
-        
-        1. Open a log file
-        2. Start the drone connection
-        3. Close the log file
-        """
-        print("Creating log file")
         self.start_log("Logs", "NavLog.txt")
+
         print("starting connection")
         self.connection.start()
-        print("Closing log file")
+
+        # Only required if they do threaded
+        # while self.in_mission:
+        #     pass
+
         self.stop_log()
 
 
@@ -436,7 +433,7 @@ if __name__ == "__main__":
     # SET GOAL
     # davis and washington : 37.7961938,-122.3987356
     drone.set_goal(37.7961938, -122.3987356)
-    drone.enable_plot = True
+    drone.enable_plot = False
     time.sleep(1)
 
     drone.start()
