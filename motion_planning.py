@@ -32,12 +32,12 @@ class Planner(Enum):
     GRID_SEARCH = 0
     VORONOI = 1
 
-
 # NED COORDINATE SYSTEM
 # right handed (down is positive)
 # X is positive north (up in simulator)
 # Y is positive east  (right in simulator)
 # Z is psitive down
+
 
 class MotionPlanning(Drone):
 
@@ -107,9 +107,8 @@ class MotionPlanning(Drone):
         command takeoff
         """
         self.flight_state = States.TAKEOFF
-        print("takeoff transition")
+        print("takeoff transition",self.target_position)
         self.takeoff(self.target_position[2])
-
 
 
     def waypoint_transition(self):
@@ -356,7 +355,7 @@ class MotionPlanning(Drone):
         lat0, lon0, data = read_environment()
 
         # set home position to (lon0, lat0, 0)
-        # self.set_home_position(lon0, lat0, 0)
+        self.set_home_position(lon0, lat0, 0)
 
         # retrieve current global position
         global_position = self.global_position
@@ -365,7 +364,7 @@ class MotionPlanning(Drone):
         current_position = global_to_local(global_position, self.global_home)
 
         # set initial location and takeoff altitude
-        self.target_position = current_position;
+        # self.target_position = current_position;
         self.target_position[2] = TARGET_ALTITUDE
 
         print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(
@@ -407,7 +406,7 @@ class MotionPlanning(Drone):
         print("Path {0}:{1:f} : Pruned Path {2} ".format(len(path), cost, len(pruned_path)))
 
         # Convert path to waypoints
-        waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in pruned_path]
+        waypoints = [[int(p[0] + north_offset), int(p[1] + east_offset), TARGET_ALTITUDE, 0] for p in pruned_path]
 
         # Set self.waypoints
         self.waypoints = waypoints
@@ -432,6 +431,9 @@ class MotionPlanning(Drone):
         """
         plan the path using a Voronoi graph
         """
+        # transition to planning
+        self.flight_state = States.PLANNING
+
         print("Searching for a path ...")
         TARGET_ALTITUDE = 5
         SAFETY_DISTANCE = 5
@@ -446,7 +448,7 @@ class MotionPlanning(Drone):
         lat0, lon0, data = read_environment()
 
         # set home position to (lon0, lat0, 0)
-        # self.set_home_position(lon0, lat0, 0)
+        self.set_home_position(lon0, lat0, 0)
 
         # retrieve current global position
         global_position = self.global_position
@@ -502,8 +504,7 @@ class MotionPlanning(Drone):
         print("Path {0}:{1:f} : Pruned Path {2} ".format(len(path), cost, len(pruned_path)))
 
         # Convert path to waypoints
-        # self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
-        waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
+        waypoints = [[int(p[0] + north_min), int(p[1] + east_min), TARGET_ALTITUDE, 0] for p in path]
         self.waypoints = waypoints
 
         if self.enable_plot:
@@ -520,9 +521,6 @@ class MotionPlanning(Drone):
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
 
-        # transition to planning
-        self.flight_state = States.PLANNING
-
     def start(self):
         self.start_log("Logs", "NavLog.txt")
 
@@ -531,7 +529,7 @@ class MotionPlanning(Drone):
 
         # Only required if they do threaded
         # while self.in_mission:
-        #     pass
+        #    pass
 
         self.stop_log()
 
@@ -544,10 +542,9 @@ if __name__ == "__main__":
     parser.add_argument('--plot', action='store_true', help="enables plot of grid,path and graph (if any)")
     args = parser.parse_args()
 
-    conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=(12 * 60))
+    # conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=10)
+    conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=60)
     drone = MotionPlanning(conn)
-
-
 
     # set to true to generate a plot of the grid, path and graph (if using voronoi)
     if args.plot:
@@ -571,3 +568,6 @@ if __name__ == "__main__":
     drone.set_goal(37.7961000, -122.3987356)
 
     drone.start()
+
+
+

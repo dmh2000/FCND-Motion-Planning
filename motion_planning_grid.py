@@ -84,9 +84,9 @@ class MotionPlanning(Drone):
         # process the event
         self.state_handler(Events.STATE)
 
-        # ===============================================================
-        # state transitions
-        # ===============================================================
+    # ===============================================================
+    # state transitions
+    # ===============================================================
 
     def arming_transition(self):
         """T
@@ -417,7 +417,7 @@ if __name__ == "__main__":
         parser.add_argument('--port', type=int, default=5760, help='Port number')
         parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
         args = parser.parse_args()
-
+        print(args)
         conn = MavlinkConnection('tcp:{0}:{1}'.format(args.host, args.port), timeout=60)
         drone = MotionPlanning(conn)
 
