@@ -183,7 +183,7 @@ def create_graph(data, drone_altitude, safety_distance):
 
     for e in edges:
         dist = norm_distance(e[0], e[1])  # LA.norm(np.array(e[0]) - np.array(e[1]))
-        graph.add_edge(e[0], e[1], weight=1)
+        graph.add_edge(e[0], e[1], weight=dist)
 
     return graph, edges, grid, north_min, east_min
 

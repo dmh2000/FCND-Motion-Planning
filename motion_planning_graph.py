@@ -316,6 +316,9 @@ class MotionPlanning(Drone):
         TARGET_ALTITUDE = 5
         SAFETY_DISTANCE = 5
 
+        # compute elapsed time to plan
+        t0 = time.monotonic()
+
         # set takeoff altitude
         self.target_position[2] = TARGET_ALTITUDE
 
