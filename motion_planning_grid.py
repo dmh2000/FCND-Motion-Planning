@@ -52,6 +52,7 @@ class MotionPlanning(Drone):
 
         # miscellaneous terms
         self.enable_plot = False
+        self.t0 = time.localtime()
 
         # register callbacks
         self.register_callback(MsgID.LOCAL_POSITION, self.local_position_callback)
@@ -317,10 +318,12 @@ class MotionPlanning(Drone):
         self.global_goal = [lon, lat, 0]
 
     def plan_path(self):
-        self.flight_state = States.PLANNING
         print("Searching for a path ...")
         TARGET_ALTITUDE = 5
         SAFETY_DISTANCE = 5
+
+        # compute elapsed time to plan
+        t0 = time.monotonic()
 
         # set takeoff altitude
         self.target_position[2] = TARGET_ALTITUDE
@@ -329,7 +332,7 @@ class MotionPlanning(Drone):
         lat0, lon0, data = read_environment()
 
         # set home position to (lon0, lat0, 0)
-        self.set_home_position(lon0, lat0, 0)
+        # self.set_home_position(lon0, lat0, 0)
 
         # retrieve current global position
         global_position = self.global_position
@@ -347,39 +350,55 @@ class MotionPlanning(Drone):
 
         # Define starting point on the grid (this is just grid center)
         # convert start position to current position rather than map center
-        grid_start = (int(current_position[0]) - north_offset, int(current_position[1]) - east_offset)
+        grid_start = (int(current_position[0] - north_offset), int(current_position[1] - east_offset))
 
         # Set goal as some arbitrary position on the grid
         # adapt to set goal as latitude / longitude position and convert
         local_goal = global_to_local(self.global_goal, self.global_home)
 
-        grid_goal = (grid_start[0] - north_offset, grid_start[1] - north_offset)
-
-        # PRINT STRAIGHT LINE DISTANCE START TO GOAL
-        print("START->GOAL :", heuristic(grid_start, grid_goal))
+        grid_goal = (int(local_goal[0] - north_offset), int(local_goal[1] - east_offset))
 
         # Run A* to find a path from start to goal
-        # TODO: add diagonal motions with a cost of sqrt(2) to your A* implementation
-        # or move to a different search space such as a graph (not done here)
+        # see planning_utils.py: add diagonal motions with a cost of sqrt(2) to your A* implementation
         print('Local Start and Goal: ', grid_start, grid_goal)
-        path, _ = a_star(grid, heuristic, grid_start, grid_goal)
+        path, cost = a_star(grid, heuristic, grid_start, grid_goal)
 
-        # TODO: prune path to minimize number of waypoints
-        # path = prune_path(grid, path)
+        # quit if path not found
+        if path is None:
+            self.disarming_transition()
+            return
+
+        # prune path to minimize number of waypoints
+        pruned_path = prune_path(path)
+        if len(pruned_path) == 0:
+            print("PRUNED PATH FAILED")
+            pruned_path = path
+
+        print("Path {0}:{1:f} : Pruned Path {2} ".format(len(path), cost, len(pruned_path)))
 
         # Convert path to waypoints
-        waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in path]
+        waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in pruned_path]
+
         # Set self.waypoints
         self.waypoints = waypoints
 
         if self.enable_plot:
-            plot_grid(grid_start,
+            plot_grid("grid",
+                      grid_start,
                       grid_goal,
                       grid,
-                      path)
+                      pruned_path)
 
-        # TODO: send waypoints to sim (this is just for visualization of waypoints)
+        # send waypoints to sim (this is just for visualization of waypoints)
+        # this seems to cause:
+        #     ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
         self.send_waypoints()
+
+        # print elapsed time
+        print("ET: {0:f}".format(time.monotonic() - t0))
+
+        # transition to planning
+        self.flight_state = States.PLANNING
 
     # def start(self):
     #     self.start_log("Logs", "NavLog.txt")
@@ -400,6 +419,7 @@ class MotionPlanning(Drone):
         2. Start the drone connection
         3. Close the log file
         """
+
         print("Creating log file")
         self.start_log("Logs", "NavLog.txt")
         print("starting connection")
@@ -421,9 +441,9 @@ if __name__ == "__main__":
         # START POINT FROM Colliders.csv
         # pine and market : 37.7961938,-122.3987356
         # SET GOAL
-        # davis and washington : 37.7961938,-122.3987356
-        drone.set_goal(37.7961938, -122.3987356)
-        drone.enable_plot = True
+        # davis and washington : 37.7961,-122.3987356
+        drone.set_goal(37.7961, -122.3987356)
+        drone.enable_plot = False
         time.sleep(1)
 
         drone.start()

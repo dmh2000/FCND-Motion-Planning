@@ -6,6 +6,7 @@ from scipy.spatial import Voronoi
 from bresenham import bresenham
 from queue import PriorityQueue
 import networkx as nx
+import time
 
 
 def read_environment(filename="colliders.csv"):
@@ -59,7 +60,6 @@ def prune_path(path):
             p1 = p2
             p2 = p3
 
-    print("PRUNE :", len(path), len(pruned_path))
     return pruned_path
 
 
@@ -67,8 +67,9 @@ def prune_path(path):
 # ASTAR GRAPH
 # =======================================
 
-def make_node(cost,pos):
-    return (cost,pos)
+def make_node(cost, pos):
+    return (cost, pos)
+
 
 # modify A* to work with a graph
 def a_star_graph(graph, h, start, goal):
@@ -90,7 +91,7 @@ def a_star_graph(graph, h, start, goal):
     path = []
     path_cost = 0
     queue = PriorityQueue()
-    start_node = (0.0,start)
+    start_node = (0.0, start)
     queue.put(start_node)
     visited = set(start)
     branch = {}
@@ -124,7 +125,7 @@ def a_star_graph(graph, h, start, goal):
                 if next_node not in visited:
                     visited.add(next_node)
                     branch[next_node] = (branch_cost, current_node)
-                    queue.put((queue_cost,next_node))
+                    queue.put((queue_cost, next_node))
 
     if found:
         # retrace steps
@@ -139,6 +140,7 @@ def a_star_graph(graph, h, start, goal):
         print('**********************')
         print('Failed to find a path!')
         print('**********************')
+        return None, None
     return path[::-1], path_cost
 
 
@@ -264,9 +266,10 @@ def create_grid_and_edges(data, drone_altitude, safety_distance):
 
     return grid, edges, north_min, east_min
 
-def plot_grid(start, goal, grid, path=None, edges=None, waypoints=None):
+
+def plot_grid(prefix, start, goal, grid, path=None, edges=None, waypoints=None):
     # interactive mode off
-    # plt.ioff()
+    plt.ioff()
 
     # equivalent to
     # plt.imshow(np.flip(grid, 0))
@@ -290,14 +293,15 @@ def plot_grid(start, goal, grid, path=None, edges=None, waypoints=None):
 
     if waypoints is not None:
         for wp in waypoints:
-            plt.plot(wp[0],wp[1],'go')
+            plt.plot(wp[0], wp[1], 'go')
 
     plt.plot(start[1], start[0], 'rx')
     plt.plot(goal[1], goal[0], 'rx')
     plt.xlabel('EAST')
     plt.ylabel('NORTH')
-    fname = "{0}-{1}_{2}-{3}.jpg".format(start[0],start[1],goal[0],goal[1])
-    plt.show()
+    t = time.strftime("%m%d%H%M%S")
+    fname = "{0}_{1}-{2}-{3}-{4}-{5}.jpg".format(prefix, int(start[0]), int(start[1]), int(goal[0]), int(goal[1]), t)
+    plt.savefig(fname)
 
 
 # test

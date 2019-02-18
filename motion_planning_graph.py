@@ -48,12 +48,6 @@ class MotionPlanning(Drone):
 
         # plan data
         self.enable_plot = False
-        self.start_p = None
-        self.goal_p = None
-        self.grid = None
-        self.graph = None
-        self.edges = None
-        self.path = None
 
         # initial state
         self.flight_state = States.MANUAL
@@ -344,7 +338,7 @@ class MotionPlanning(Drone):
 
         # Define a graph and grid for a particular altitude and safety margin around obstacles
         # see project_utils.py
-        self.graph, self.edges, self.grid, north_min, east_min = create_graph(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
+        graph, edges, grid, north_min, east_min = create_graph(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
 
         # Define starting point on the grid (this is just grid center)
         # convert start position to current position rather than map center
@@ -359,32 +353,43 @@ class MotionPlanning(Drone):
         goal_p = (local_goal[0] - north_min, local_goal[1] - east_min)
 
         # find nearest points in the graph
-        self.start_p = find_nearest(self.graph, self.grid, start_p)
-        self.goal_p = find_nearest(self.graph, self.grid, goal_p)
+        print(start_p,goal_p)
+        start_p = find_nearest(graph, grid, start_p)
+        goal_p = find_nearest(graph, grid, goal_p)
 
         # Run Graph A* to find a path from start to goal
         # see project_utils.py
-        print('Local Start and Goal: ', self.start_p, self.goal_p)
-        self.path, _ = a_star_graph(self.graph, heuristic, self.start_p, self.goal_p)
+        print('Local Start and Goal: ', start_p, goal_p)
+        path, cost = a_star_graph(graph, heuristic, start_p, goal_p)
+
+        # quit if path not found
+        if path is None:
+            self.disarming_transition()
+            return
 
         # TODO: prune path to minimize number of waypoints
         # TODO (if you're feeling ambitious): Try a different approach altogether!
         # path = prune_path(grid, path)
+        print("Path {0}:{1:f} ".format(len(path), cost))
 
         # Convert path to waypoints
-        self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in self.path]
+        self.waypoints = [[int(p[0]) + north_min, int(p[1]) + east_min, TARGET_ALTITUDE, 0] for p in path]
 
         if self.enable_plot:
-            plot_grid(self.start_p,
-                      self.goal_p,
-                      self.grid,
-                      self.path,
-                      self.edges)
+            plot_grid("graph",
+                      start_p,
+                      goal_p,
+                      grid,
+                      path,
+                      edges)
 
         # send waypoints to sim (this is just for visualization of waypoints)
         self.send_waypoints()
 
-        # current state is planning
+        # print elapsed time
+        print("ET: {0:f}".format(time.monotonic() - t0))
+
+        # transition to planning
         self.flight_state = States.PLANNING
 
     # def start(self):

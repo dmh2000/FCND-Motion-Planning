@@ -57,7 +57,9 @@ class Action(Enum):
     NORTH = (-1, 0, 1)
     SOUTH = (1, 0, 1)
 
+    # NEW =====================================================
     # diagonal actions
+    # NEW =====================================================
     NORTH_EAST = (-1, 1, np.sqrt(2.0))
     SOUTH_EAST = (1, 1, np.sqrt(2.0))
     SOUTH_WEST = (1, -1, np.sqrt(2.0))
@@ -92,7 +94,9 @@ def valid_actions(grid, current_node):
     if y + 1 > e or grid[x, y + 1] == 1:
         valid_actions.remove(Action.EAST)
 
+    # NEW =====================================================
     # check diagonal actions
+    # NEW =====================================================
     if x - 1 < 0 or y + 1 > e or grid[x - 1, y + 1] == 1:
         valid_actions.remove(Action.NORTH_EAST)
     if x + 1 > n or y + 1 > e or grid[x + 1, y + 1] == 1:
@@ -119,9 +123,11 @@ def a_star(grid, h, start, goal):
     while not queue.empty():
         item = queue.get()
 
-        # debug
-        if (count % 100) == 0:
-            print(count, item)
+        # NEW =====================================================
+        # print astar progress
+        # NEW =====================================================
+        if (count % 1000) == 0:
+            print(count, int(item[0]), item[1])
         count += 1
 
         current_node = item[1]
@@ -160,6 +166,8 @@ def a_star(grid, h, start, goal):
         print('**********************')
         print('Failed to find a path!')
         print('**********************')
+        return None, None
+
     return path[::-1], path_cost
 
 
