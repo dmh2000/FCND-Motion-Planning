@@ -3,9 +3,11 @@ import time
 import msgpack
 from enum import Enum, auto
 import numpy as np
+import pickle
 
 from planning_utils import a_star, heuristic, create_grid
-from project_utils import read_environment, prune_path, create_graph, a_star_graph, find_nearest, plot_grid
+from project_utils import read_environment, prune_path, pickle_log
+from project_utils import create_graph, a_star_graph, find_nearest, plot_grid
 from udacidrone import Drone
 from udacidrone.connection import MavlinkConnection
 from udacidrone.messaging import MsgID
@@ -32,6 +34,7 @@ class Planner(Enum):
     GRID_SEARCH = 0
     VORONOI = 1
 
+
 # NED COORDINATE SYSTEM
 # right handed (down is positive)
 # X is positive north (up in simulator)
@@ -54,6 +57,10 @@ class MotionPlanning(Drone):
         self.enable_plot = False
         self.global_goal = [-122.397896, 37.792523, 0]
         self.planner = Planner.GRID_SEARCH  # default to grid search
+        self.waypoint_tolerance = 8.0
+        self.loiter_seconds = 4
+        self.loiter_state = 0
+        self.loiter_t0 = 0.0
 
         # initial state
         self.flight_state = States.MANUAL
@@ -107,9 +114,8 @@ class MotionPlanning(Drone):
         command takeoff
         """
         self.flight_state = States.TAKEOFF
-        print("takeoff transition",self.target_position)
+        print("takeoff transition", self.target_position)
         self.takeoff(self.target_position[2])
-
 
     def waypoint_transition(self):
         """
@@ -124,6 +130,8 @@ class MotionPlanning(Drone):
                           self.target_position[1],
                           self.target_position[2],
                           self.target_position[3])
+        # reset loiter state for this waypoint
+        self.loiter_state = 0
 
     def landing_transition(self):
         """T
@@ -146,12 +154,14 @@ class MotionPlanning(Drone):
 
     def manual_transition(self):
         """
-        1. Release control of the drone
-        2. Stop the connection (and telemetry log)
-        3. End the mission
-        4. Transition to the MANUAL state
+        1. Write a pickle of the telemetry log for later plotting
+        2. Release control of the drone
+        3. Stop the connection (and telemetry log)
+        4. End the mission
+        5. Transition to the MANUAL state
         """
         print("manual transition")
+        pickle_log(self)
         self.stop()
         self.in_mission = False
 
@@ -238,12 +248,29 @@ class MotionPlanning(Drone):
         # NEW =====================================================
         # increased tolerance for stepping waypoint
         # NEW =====================================================
-        tolerance = 5.0
         if event == Events.LOCAL_POSITION:
             # check waypoint bounds and go to next
-            if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < tolerance:
+            if np.linalg.norm(self.target_position[0:2] - self.local_position[0:2]) < self.waypoint_tolerance:
                 if len(self.waypoints) > 0:
-                    self.waypoint_transition()
+                    # NEW =====================================================
+                    # LOITER OPTION
+                    # NEW =====================================================
+                    if self.loiter_seconds == 0:
+                        # no loiter at waypoint
+                        self.waypoint_transition()
+                    else:
+                        if self.loiter_state == 0:
+                            self.loiter_t0 = time.monotonic()
+                            self.loiter_state = 1
+                        elif self.loiter_state == 1:
+                            t = time.monotonic()
+                            # wait for loiter time to expire
+                            if (t - self.loiter_t0) >= self.loiter_seconds:
+                                # time expired, next waypoint
+                                self.loiter_state = 0
+                                self.waypoint_transition()
+                        else:
+                            print("Invalid loiter state")
                 else:
                     if np.linalg.norm(self.local_velocity[0:2]) < 1.0:
                         self.landing_transition()
@@ -366,7 +393,7 @@ class MotionPlanning(Drone):
         # self.target_position = current_position;
         self.target_position[2] = TARGET_ALTITUDE
 
-        print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(
+        print('global home {0}\nglobal_position {1}\nlocal position {2}\ncurrent_position {3}'.format(
             self.global_home,
             self.global_position,
             self.local_position,
@@ -455,7 +482,7 @@ class MotionPlanning(Drone):
         # convert to current local position using global_to_local()
         current_position = global_to_local(global_position, self.global_home)
 
-        print('global home {0}, global_position {1}, local position {2}, current_position {3}'.format(
+        print('global home {0}\nglobal_position {1}\nlocal position {2}\ncurrent_position {3}'.format(
             self.global_home,
             self.global_position,
             self.local_position,
@@ -510,7 +537,7 @@ class MotionPlanning(Drone):
         wp1 = [int(pruned_path[0][0] + north_offset), int(pruned_path[0][1] + east_offset), TARGET_ALTITUDE, 0]
         waypoints.append(wp1)
         for p in pruned_path[1:]:
-            wp2 = [int(p[0] + north_offset), int(p[1] + east_offset), TARGET_ALTITUDE,0]
+            wp2 = [int(p[0] + north_offset), int(p[1] + east_offset), TARGET_ALTITUDE, 0]
             wp2[3] = np.arctan2(wp2[1] - wp1[1], wp2[0] - wp1[0])
             waypoints.append(wp2)
             wp1 = wp2
@@ -530,6 +557,7 @@ class MotionPlanning(Drone):
 
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
+
 
     def start(self):
         self.start_log("Logs", "NavLog.txt")
@@ -571,6 +599,9 @@ if __name__ == "__main__":
         drone.planner = Planner.GRID_SEARCH
         print("mode = GRID_SEARCH")
 
+    # set loiter_seconds to > 0 to loiter at waypoints
+    drone.loiter_seconds = 0
+
     time.sleep(1)
 
     # SET GOAL
@@ -578,6 +609,3 @@ if __name__ == "__main__":
     drone.set_goal(37.7961000, -122.3987356)
 
     drone.start()
-
-
-

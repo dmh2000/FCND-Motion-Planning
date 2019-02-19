@@ -7,7 +7,7 @@ from bresenham import bresenham
 from queue import PriorityQueue
 import networkx as nx
 import time
-
+import pickle
 
 def read_environment(filename="colliders.csv"):
     """
@@ -302,6 +302,15 @@ def plot_grid(prefix, start, goal, grid, path=None, edges=None, waypoints=None):
     plt.xlabel('EAST')
     plt.ylabel('NORTH')
     plt.savefig(fname)
+
+def pickle_log(self,drone):
+    """
+    write the log data as a pickle file for later plotting
+    :return:
+    """
+    log = drone.read_telemetry_data("Logs/TLog.txt")
+    with open("log.pkl", "wb") as f:
+        pickle.dump(log, f)
 
 
 # test
