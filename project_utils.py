@@ -303,7 +303,7 @@ def plot_grid(prefix, start, goal, grid, path=None, edges=None, waypoints=None):
     plt.ylabel('NORTH')
     plt.savefig(fname)
 
-def pickle_log(self,drone):
+def pickle_log(drone):
     """
     write the log data as a pickle file for later plotting
     :return:

@@ -14,6 +14,7 @@ from udacidrone.messaging import MsgID
 from udacidrone.frame_utils import global_to_local, local_to_global
 
 
+# processing states
 class States(Enum):
     MANUAL = 0
     ARMING = 1
@@ -24,15 +25,18 @@ class States(Enum):
     PLANNING = 6
 
 
+# events from the drone
 class Events(Enum):
     LOCAL_POSITION = 0
     VELOCITY = 1
     STATE = 2
 
 
+# selections of planning mode
 class Planner(Enum):
     GRID_SEARCH = 0
     VORONOI = 1
+    SPIRAL = 2
 
 
 # NED COORDINATE SYSTEM
@@ -58,7 +62,8 @@ class MotionPlanning(Drone):
         self.global_goal = [-122.397896, 37.792523, 0]
         self.planner = Planner.GRID_SEARCH  # default to grid search
         self.waypoint_tolerance = 8.0
-        self.loiter_seconds = 4
+        # change loiter seconds to 5 or greater to loiter at each waypoint
+        self.loiter_seconds = 0
         self.loiter_state = 0
         self.loiter_t0 = 0.0
 
@@ -196,10 +201,12 @@ class MotionPlanning(Drone):
         elif event == Events.VELOCITY:
             pass
         elif event == Events.STATE:
-            # wait until armed then initiate planning
+            # wait until armed then initiate planning based on option selected
             if self.armed and self.guided:
                 if self.planner == Planner.VORONOI:
                     self.plan_path_voronoi()
+                elif self.planner == Planner.SPIRAL:
+                    self.plan_spiral()
                 else:
                     self.plan_path_grid()
         else:
@@ -558,6 +565,92 @@ class MotionPlanning(Drone):
         # print elapsed time
         print("ET: {0:f}".format(time.monotonic() - t0))
 
+    def plan_spiral(self):
+
+        """
+        plan the path using a Voronoi graph
+        """
+        # transition to planning
+        self.flight_state = States.PLANNING
+
+        print("Searching for a path ...")
+        TARGET_ALTITUDE = 5
+        SAFETY_DISTANCE = 5
+
+        # compute elapsed time to plan
+        t0 = time.monotonic()
+
+        # set takeoff altitude
+        self.target_position[2] = TARGET_ALTITUDE
+
+        # read lat0, lon0 from colliders into floating point values
+        lat0, lon0, data = read_environment()
+
+        # set home position to (lon0, lat0, 0)
+        self.set_home_position(lon0, lat0, 0)
+
+        # retrieve current global position
+        global_position = self.global_position
+
+        # convert to current local position using global_to_local()
+        current_position = global_to_local(global_position, self.global_home)
+
+        print('global home {0}\nglobal_position {1}\nlocal position {2}\ncurrent_position {3}'.format(
+            self.global_home,
+            self.global_position,
+            self.local_position,
+            current_position)
+        )
+
+        # =============================================================
+        # generate waypoints in a spiral
+        #
+        # =============================================================
+        N = self.local_position[0]  # center of spiral
+        E = self.local_position[1]  # center of spiral
+        Z = 5  # initial altitude
+        R = 10  # radius in meters
+        da = 8  # number of waypoints in one circle
+        dp = np.pi / da  # delta angle between waypoints
+        dz = 0.2  # delta z for each iteration
+        a = []  # array containing north,east points in circle
+        iters = 4  # number of circles to fly
+
+        # compute north,east positions for one circle
+        p = 0
+        while p < (np.pi * 2.0):
+            n = np.sin(p) * R
+            e = np.cos(p) * R
+            a.append([n, e])
+            p += dp
+
+        # list of waypoints
+        waypoints = []
+
+        # moving up
+        j = 0
+        z = Z
+        # number of circles
+        for i in range(0, iters):
+            # one circle
+            j = 0
+            for k in range(0, len(a)):
+                n = N + a[j][0]
+                e = E + a[j][1]
+                j += 1
+                z += dz
+                waypoints.append([int(n), int(e), int(z), 0])
+
+        # moving down, just reverse the waypoint list
+        waypoints += waypoints[::-1]
+
+        # return to home position
+        waypoints.append([int(N), int(E), Z, 0])
+
+        self.waypoints = waypoints
+
+        # send waypoints to sim (this is just for visualization of waypoints)
+        self.send_waypoints()
 
     def start(self):
         self.start_log("Logs", "NavLog.txt")
@@ -576,7 +669,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=5760, help='Port number')
     parser.add_argument('--host', type=str, default='127.0.0.1', help="host address, i.e. '127.0.0.1'")
-    parser.add_argument('--mode', type=str, default='grid', help="'grid' or'voronoi'")
+    parser.add_argument('--mode', type=str, default='grid', help="'grid' ,'voronoi or spiral'")
     parser.add_argument('--plot', action='store_true', help="enables plot of grid,path and graph (if any)")
     args = parser.parse_args()
 
@@ -595,6 +688,9 @@ if __name__ == "__main__":
     if args.mode == "voronoi":
         drone.planner = Planner.VORONOI
         print("mode = VORONOI")
+    elif args.mode == "spiral":
+        print("mode = SPIRAL")
+        drone.planner = Planner.SPIRAL
     else:
         drone.planner = Planner.GRID_SEARCH
         print("mode = GRID_SEARCH")
